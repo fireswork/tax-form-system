@@ -11,12 +11,8 @@ import type { StateData } from '@/services/api'
 
 export function StateSelector() {
   const [searchQuery, setSearchQuery] = useState('')
-  const { states, loading, error, fetchStates, selectState } = useStatesStore()
+  const { states, loading, error, selectState } = useStatesStore()
   const [filteredStates, setFilteredStates] = useState<StateData[]>([])
-
-  useEffect(() => {
-    fetchStates()
-  }, [fetchStates])
 
   useEffect(() => {
     if (searchQuery) {

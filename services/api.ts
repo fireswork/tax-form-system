@@ -11,13 +11,16 @@ export interface ValidationRules {
   format?: string
   minValue?: number
   maxValue?: number
+  errorMessage?: string
 }
 
 export interface FormField {
   name: string
   type: string
   required: boolean
-  validationRules: ValidationRules
+  validationRules: ValidationRules[]
+  displayName: string
+  detail: string
 }
 
 export interface FormTemplate {
@@ -35,7 +38,7 @@ export const taxPolicyAPI = {
       throw error
     }
   },
-  
+
   getFormTemplate: async (abbreviation: string) => {
     try {
       const response: FormTemplate = await axios.get(`/api/taxPolicy/${abbreviation}/formFields`)
@@ -45,24 +48,12 @@ export const taxPolicyAPI = {
     }
   },
 
-  generatePdf: async (stateAbbreviation: string, formData: any) => {
+  generatePdf: async (stateAbbreviation: string, formData: any): Promise<any> => {
     try {
-      const response = await fetch(`/api/taxPolicy/generatePdf/${stateAbbreviation}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(formData),
-      })
-      
-      if (!response.ok) {
-        throw new Error('Failed to generate PDF')
-      }
-      
-      return await response.json()
+      const response = await axios.post(`/api/taxPolicy/generatePdf/${stateAbbreviation}`, formData)
+      return response
     } catch (error) {
-      console.error('Error generating PDF:', error)
       throw error
     }
   }
-} 
+}

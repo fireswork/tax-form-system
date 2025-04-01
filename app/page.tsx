@@ -32,7 +32,7 @@ export default function TaxFormPage() {
   
   useEffect(() => {
     fetchStates()
-  }, [fetchStates])
+  }, [])
 
   if (loading) {
     return (

@@ -21,6 +21,14 @@ const nextConfig = {
     parallelServerBuildTraces: true,
     parallelServerCompiles: true,
   },
+  async rewrites() {
+    return [
+      {
+        source: '/api/:path*',
+        destination: 'http://172.17.118.161:3000/:path*'
+      }
+    ]
+  }
 }
 
 mergeConfig(nextConfig, userConfig)

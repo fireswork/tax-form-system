@@ -33,9 +33,9 @@ export function DownloadOptions({ downloadLinks, onReset }: DownloadOptionsProps
   }
 
   return (
-    <Card>
-      <CardContent className="p-8">
-        <div className='flex flex-col justify-between'>
+    <Card className='self-start'>
+      <CardContent className="p-8 flex flex-col justify-between">
+        <div>
           <div className="flex items-center mb-6">
             <Download className="h-8 w-8 text-blue-600 mr-3" />
             <h2 className="text-2xl font-semibold text-gray-900">Download Options</h2>

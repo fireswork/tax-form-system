@@ -11,9 +11,11 @@ import {
   FormField,
   FormItem,
   FormLabel,
-  FormMessage
+  FormMessage,
+  FormDescription
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import { Checkbox } from '@/components/ui/checkbox'
 import type { FormField as FormFieldType } from '@/services/api'
 import { useStatesStore } from '@/store/states'
 import { formatPhoneNumber, unformatPhoneNumber } from '@/utils/format'
@@ -28,8 +30,8 @@ interface DynamicFormProps {
 export function DynamicFormRenderer({ fields, onSubmit, isSubmitting, defaultValues = {} }: DynamicFormProps) {
   const { goToPreviousStep } = useStatesStore()
 
-  const getFieldLabel = (name: string) => {
-    return name.charAt(0).toUpperCase() + name.slice(1).replace(/([A-Z])/g, ' $1')
+  const getFieldLabel = (field: FormFieldType) => {
+    return field.displayName || field.name.charAt(0).toUpperCase() + field.name.slice(1).replace(/([A-Z])/g, ' $1')
   }
 
   const generateZodSchema = (fields: FormFieldType[]) => {
@@ -37,22 +39,26 @@ export function DynamicFormRenderer({ fields, onSubmit, isSubmitting, defaultVal
 
     fields.forEach((field) => {
       let fieldSchema: any
-      const fieldLabel = getFieldLabel(field.name)
+      const fieldLabel = getFieldLabel(field)
 
       if (field.type === 'number') {
         let baseSchema = z.number({
-          required_error: `${fieldLabel} should be required`,
+          required_error: `${fieldLabel} is required`,
           invalid_type_error: `${fieldLabel} should be a number`
         })
 
-        if (field.validationRules.minValue !== undefined) {
-          baseSchema = baseSchema.min(field.validationRules.minValue, {
-            message: `${fieldLabel} should be at least ${field.validationRules.minValue}`
-          })
-        }
-        if (field.validationRules.maxValue !== undefined) {
-          baseSchema = baseSchema.max(field.validationRules.maxValue, {
-            message: `${fieldLabel} should be at most ${field.validationRules.maxValue}`
+        if (field.validationRules) {
+          field.validationRules.forEach(rule => {
+            if (rule.minValue !== undefined) {
+              baseSchema = baseSchema.min(rule.minValue, {
+                message: rule.errorMessage || `${fieldLabel} should be at least ${rule.minValue}`
+              })
+            }
+            if (rule.maxValue !== undefined) {
+              baseSchema = baseSchema.max(rule.maxValue, {
+                message: rule.errorMessage || `${fieldLabel} should be at most ${rule.maxValue}`
+              })
+            }
           })
         }
 
@@ -70,35 +76,38 @@ export function DynamicFormRenderer({ fields, onSubmit, isSubmitting, defaultVal
         } else {
           fieldSchema = baseSchema
         }
-      } else if (field.type === 'string') {
+      } else if (field.type === 'string' || field.type === 'date') {
         let baseSchema = z.string({
-          required_error: `${fieldLabel} should be required`,
+          required_error: `${fieldLabel} is required`,
           invalid_type_error: `${fieldLabel} should be a string`
         })
 
-        if (field.validationRules.minLength !== undefined) {
-          baseSchema = baseSchema.min(field.validationRules.minLength, {
-            message: `${fieldLabel} should be contain at least ${field.validationRules.minLength} character(s)`
+        if (field.required) {
+          baseSchema = baseSchema.min(1, {
+            message: `${fieldLabel} should not be empty`
           })
         }
-        if (field.validationRules.maxLength !== undefined) {
-          baseSchema = baseSchema.max(field.validationRules.maxLength, {
-            message: `${fieldLabel} should be contain at most ${field.validationRules.maxLength} character(s)`
-          })
-        }
-        
-        // 特殊处理电话号码字段
-        if (field.name.toLowerCase().includes('phone')) {
-          // 对于电话号码，我们先验证格式化后的字符串，然后在提交前转换为纯数字
-          // 移除正则表达式验证，因为我们已经有格式化函数
-          if (field.validationRules.format) {
-            // 忽略电话号码的格式验证，因为我们使用自己的格式化
-            delete field.validationRules.format;
-          }
-        } else if (field.validationRules.format) {
-          // 对于非电话号码字段，保留原有的正则验证
-          baseSchema = baseSchema.regex(new RegExp(field.validationRules.format), {
-            message: `${fieldLabel} should be valid`
+
+        if (field.validationRules) {
+          field.validationRules.forEach(rule => {
+            if (rule.minLength !== undefined) {
+              baseSchema = baseSchema.min(rule.minLength, {
+                message: rule.errorMessage || `${fieldLabel} should contain at least ${rule.minLength} character(s)`
+              })
+            }
+            if (rule.maxLength !== undefined) {
+              baseSchema = baseSchema.max(rule.maxLength, {
+                message: rule.errorMessage || `${fieldLabel} should contain at most ${rule.maxLength} character(s)`
+              })
+            }
+            
+            if (field.name.toLowerCase().includes('phone')) {
+              // Skip format validation for phone fields as we handle formatting separately
+            } else if (rule.format) {
+              baseSchema = baseSchema.regex(new RegExp(rule.format), {
+                message: rule.errorMessage || `${fieldLabel} should be valid`
+              })
+            }
           })
         }
 
@@ -106,6 +115,14 @@ export function DynamicFormRenderer({ fields, onSubmit, isSubmitting, defaultVal
           fieldSchema = baseSchema.optional()
         } else {
           fieldSchema = baseSchema
+        }
+      } else if (field.type === 'checkbox') {
+        if (field.required) {
+          fieldSchema = z.boolean().refine(val => val === true, {
+            message: `${fieldLabel} is required`
+          })
+        } else {
+          fieldSchema = z.boolean().optional()
         }
       }
 
@@ -117,19 +134,18 @@ export function DynamicFormRenderer({ fields, onSubmit, isSubmitting, defaultVal
 
   const formSchema = generateZodSchema(fields)
   
-  // 确保所有默认值都有定义，避免从未定义变为定义的转换
   const processedDefaultValues = { ...defaultValues }
   fields.forEach(field => {
-    // 如果字段在默认值中不存在，设置一个初始值
     if (processedDefaultValues[field.name] === undefined) {
       if (field.type === 'number') {
         processedDefaultValues[field.name] = field.required ? 0 : ''
+      } else if (field.type === 'checkbox') {
+        processedDefaultValues[field.name] = false
       } else {
         processedDefaultValues[field.name] = ''
       }
     }
     
-    // 格式化电话号码字段
     if (field.type === 'string' && field.name.toLowerCase().includes('phone') && processedDefaultValues[field.name]) {
       processedDefaultValues[field.name] = formatPhoneNumber(processedDefaultValues[field.name])
     }
@@ -141,26 +157,7 @@ export function DynamicFormRenderer({ fields, onSubmit, isSubmitting, defaultVal
     mode: "onChange"
   })
 
-  const getFieldDescription = (field: FormFieldType) => {
-    const rules = field.validationRules
-    const descriptions = []
-
-    if (rules.minLength) descriptions.push(`Minimum ${rules.minLength} characters`)
-    if (rules.maxLength) descriptions.push(`Maximum ${rules.maxLength} characters`)
-    if (rules.minValue) descriptions.push(`Minimum value: ${rules.minValue}`)
-    if (rules.maxValue) descriptions.push(`Maximum value: ${rules.maxValue}`)
-    if (field.required) descriptions.push('Required')
-    
-    // 为电话号码添加格式提示
-    if (field.name.toLowerCase().includes('phone')) {
-      descriptions.push('Format: (xxx) xxx-xxxx')
-    }
-
-    return descriptions.join(' • ')
-  }
-
   const handleSubmit = (data: any) => {
-    // 在提交前确保电话号码是纯数字格式
     const processedData = { ...data }
     fields.forEach(field => {
       if (field.type === 'string' && field.name.toLowerCase().includes('phone') && processedData[field.name]) {
@@ -169,6 +166,67 @@ export function DynamicFormRenderer({ fields, onSubmit, isSubmitting, defaultVal
     })
     
     onSubmit(processedData)
+  }
+
+  const renderFormControl = (field: FormFieldType, formField: any) => {
+    if (field.type === 'checkbox') {
+      return (
+        <FormControl>
+          <Checkbox
+            checked={formField.value}
+            onCheckedChange={formField.onChange}
+          />
+        </FormControl>
+      )
+    }
+    
+    if (field.type === 'date') {
+      return (
+        <FormControl>
+          <Input
+            {...formField}
+            type="date"
+            value={formField.value ?? ''}
+          />
+        </FormControl>
+      )
+    }
+    
+    return (
+      <FormControl>
+        <Input
+          {...formField}
+          type={field.type === 'number' ? 'number' : 'text'}
+          onChange={(e) => {
+            let value: any = e.target.value
+            
+            if (field.type === 'string' && field.name.toLowerCase().includes('phone')) {
+              const input = e.target as HTMLInputElement
+              const selectionStart = input.selectionStart
+              const previousLength = value.length
+              
+              value = formatPhoneNumber(value)
+              
+              formField.onChange(value)
+              
+              setTimeout(() => {
+                const lengthDifference = value.length - previousLength
+                const newPosition = selectionStart ? selectionStart + lengthDifference : value.length
+                
+                input.setSelectionRange(newPosition, newPosition)
+              }, 0)
+              
+              return
+            } else if (field.type === 'number') {
+              value = e.target.value === '' ? '' : Number(e.target.value)
+            }
+            
+            formField.onChange(value)
+          }}
+          value={formField.value ?? ''}
+        />
+      </FormControl>
+    )
   }
 
   return (
@@ -180,50 +238,15 @@ export function DynamicFormRenderer({ fields, onSubmit, isSubmitting, defaultVal
             control={form.control}
             name={field.name}
             render={({ field: formField }) => (
-              <FormItem>
-                <FormLabel>
-                  {getFieldLabel(field.name)}
-                  {field.required && <span className="text-red-500 ml-1">*</span>}
-                </FormLabel>
-                <FormControl>
-                  <Input
-                    {...formField}
-                    type={field.type === 'number' ? 'number' : 'text'}
-                    onChange={(e) => {
-                      let value: any = e.target.value
-                      
-                      // 处理电话号码格式化
-                      if (field.type === 'string' && field.name.toLowerCase().includes('phone')) {
-                        // 保存光标位置
-                        const input = e.target as HTMLInputElement
-                        const selectionStart = input.selectionStart
-                        const previousLength = value.length
-                        
-                        // 格式化电话号码
-                        value = formatPhoneNumber(value)
-                        
-                        // 更新表单值
-                        formField.onChange(value)
-                        
-                        // 在下一个事件循环中恢复光标位置
-                        setTimeout(() => {
-                          // 计算新的光标位置
-                          const lengthDifference = value.length - previousLength
-                          const newPosition = selectionStart ? selectionStart + lengthDifference : value.length
-                          
-                          input.setSelectionRange(newPosition, newPosition)
-                        }, 0)
-                        
-                        return
-                      } else if (field.type === 'number') {
-                        value = e.target.value === '' ? '' : Number(e.target.value)
-                      }
-                      
-                      formField.onChange(value)
-                    }}
-                    value={formField.value ?? ''}
-                  />
-                </FormControl>
+              <FormItem className={field.type === 'checkbox' ? "flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4" : ""}>
+                <div className={field.type === 'checkbox' ? "flex-1 space-y-1 leading-none" : ""}>
+                  <FormLabel>
+                    {getFieldLabel(field)}
+                    {field.required && field.type !== 'checkbox' && <span className="text-red-500 ml-1">*</span>}
+                  </FormLabel>
+                  {field.detail && <FormDescription>{field.detail}</FormDescription>}
+                </div>
+                {renderFormControl(field, formField)}
                 <FormMessage />
               </FormItem>
             )}
